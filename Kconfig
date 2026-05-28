@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MIT
+
+config ZMK_SHELL_RELAY_CORE
+    bool "Shared shell relay core (dynamic output buffer)"
+    depends on SHELL
+    default y if (ZMK_BLE_SHELL || ZMK_ESB_ENDPOINT_SHELL_RELAY)
+
+if ZMK_SHELL_RELAY_CORE
+
+config ZMK_SHELL_RELAY_STATIC_BUF_SIZE
+    int "Static output ring-buffer size (bytes)"
+    default 256
+
+config ZMK_SHELL_RELAY_SEG_SIZE
+    int "Heap overflow segment size (bytes)"
+    default 128
+
+config ZMK_SHELL_RELAY_OVERFLOW_HEAP_SIZE
+    int "Heap reserved for output overflow segments (bytes)"
+    default 1024
+
+config ZMK_SHELL_RELAY_EXEC_STACK_SIZE
+    int "Stack size for the shared shell-exec work queue (bytes)"
+    default 2048
+    range 1024 8192
+
+config ZMK_SHELL_RELAY_EXEC_PRIORITY
+    int "Priority of the shared shell-exec work queue thread"
+    default 7
+    range 0 14
+
+config ZMK_SHELL_RELAY_PROMPT
+    string "Internal shell instance prompt"
+    default SHELL_PROMPT_UART
+
+config ZMK_SHELL_RELAY_LOG_QUEUE_SIZE
+    int "Internal shell instance deferred-log queue size"
+    default 256
+
+endif # ZMK_SHELL_RELAY_CORE
