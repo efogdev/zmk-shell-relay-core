@@ -245,12 +245,77 @@ void zmk_shell_relay_detach(void) {
 static K_THREAD_STACK_DEFINE(zsr_exec_stack, CONFIG_ZMK_SHELL_RELAY_EXEC_STACK_SIZE);
 static struct k_work_q zsr_exec_q;
 
-int zmk_shell_relay_execute(const char *cmd) {
-    return shell_execute_cmd(&zsr_shell, cmd);
+RING_BUF_DECLARE(zsr_cmd_rb, CONFIG_ZMK_SHELL_RELAY_CMD_QUEUE_SIZE);
+static struct k_spinlock zsr_cmd_lock;
+
+static void zsr_exec_work_fn(struct k_work *work) {
+    ARG_UNUSED(work);
+    char cmd[CONFIG_ZMK_SHELL_RELAY_CMD_BUF_SIZE];
+
+    while (true) {
+        size_t n = 0;
+        uint8_t c;
+        while (ring_buf_get(&zsr_cmd_rb, &c, 1) == 1 && c != '\0') {
+            if (n < sizeof(cmd) - 1) {
+                cmd[n++] = (char)c;
+            }
+        }
+        if (n == 0) {
+            return;
+        }
+        cmd[n] = '\0';
+
+        char *start = cmd;
+        while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n') {
+            start++;
+        }
+        char *end = start + strlen(start);
+        while (end > start && (*(end - 1) == ' ' || *(end - 1) == '\t' || *(end - 1) == '\r' || *(end - 1) == '\n')) {
+            end--;
+        }
+        *end = '\0';
+        if (*start == '\0') {
+            continue;
+        }
+
+        const int ret = shell_execute_cmd(&zsr_shell, start);
+        const struct zmk_shell_relay_sink *sink = zsr_sink;
+        if (sink != NULL && sink->cmd_done != NULL) {
+            sink->cmd_done(start, ret);
+        }
+    }
 }
 
-void zmk_shell_relay_submit_exec(struct k_work *work) {
-    k_work_submit_to_queue(&zsr_exec_q, work);
+static K_WORK_DEFINE(zsr_exec_work, zsr_exec_work_fn);
+
+int zmk_shell_relay_queue_cmd(const char *data, const size_t len) {
+    if (len == 0) {
+        return -EINVAL;
+    }
+    if (len >= CONFIG_ZMK_SHELL_RELAY_CMD_BUF_SIZE) {
+        return -E2BIG;
+    }
+
+    const uint32_t n = (uint32_t)len + 1;
+    const k_spinlock_key_t key = k_spin_lock(&zsr_cmd_lock);
+    if (ring_buf_space_get(&zsr_cmd_rb) < n) {
+        k_spin_unlock(&zsr_cmd_lock, key);
+        LOG_WRN("cmd queue full, dropped %zu bytes", len);
+        return -ENOSPC;
+    }
+    const uint8_t nul = 0;
+    ring_buf_put(&zsr_cmd_rb, (const uint8_t *)data, (uint32_t)len);
+    ring_buf_put(&zsr_cmd_rb, &nul, 1);
+    k_spin_unlock(&zsr_cmd_lock, key);
+
+    k_work_submit_to_queue(&zsr_exec_q, &zsr_exec_work);
+    return 0;
+}
+
+void zmk_shell_relay_reset_cmds(void) {
+    const k_spinlock_key_t key = k_spin_lock(&zsr_cmd_lock);
+    ring_buf_reset(&zsr_cmd_rb);
+    k_spin_unlock(&zsr_cmd_lock, key);
 }
 
 static int zsr_init(void) {

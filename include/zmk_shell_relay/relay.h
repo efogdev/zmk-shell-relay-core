@@ -19,6 +19,7 @@
 
 struct zmk_shell_relay_sink {
     void (*data_ready)(void);
+    void (*cmd_done)(const char *cmd, int ret);
 };
 
 void zmk_shell_relay_attach(const struct zmk_shell_relay_sink *sink);
@@ -26,9 +27,9 @@ void zmk_shell_relay_detach(void);
 
 void zmk_shell_relay_enqueue(const uint8_t *data, size_t len);
 
-int zmk_shell_relay_execute(const char *cmd);
+int zmk_shell_relay_queue_cmd(const char *data, size_t len);
 
-void zmk_shell_relay_submit_exec(struct k_work *work);
+void zmk_shell_relay_reset_cmds(void);
 
 uint32_t zmk_shell_relay_claim(uint8_t **data, uint32_t max_len);
 void zmk_shell_relay_finish(uint32_t consumed);
